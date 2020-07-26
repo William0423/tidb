@@ -150,6 +150,7 @@ func (s *Server) SetDomain(dom *domain.Domain) {
 
 // newConn creates a new *clientConn from a net.Conn.
 // It allocates a connection ID and random salt data for authentication.
+// random salt data:结合connection ID，用作认证
 func (s *Server) newConn(conn net.Conn) *clientConn {
 	cc := newClientConn(s)
 	if s.cfg.Performance.TCPKeepAlive {
@@ -287,7 +288,9 @@ func (s *Server) Run() error {
 	if s.cfg.Status.ReportStatus {
 		s.startStatusHTTP()
 	}
+	// 循环等待连接
 	for {
+		// 连接建立的逻辑
 		conn, err := s.listener.Accept()
 		if err != nil {
 			if opErr, ok := err.(*net.OpError); ok {
@@ -305,7 +308,7 @@ func (s *Server) Run() error {
 			logutil.BgLogger().Error("accept failed", zap.Error(err))
 			return errors.Trace(err)
 		}
-
+		// 创建新的客户端链接，这个客户端连接是什么样的数据结构？
 		clientConn := s.newConn(conn)
 
 		err = plugin.ForeachPlugin(plugin.Audit, func(p *plugin.Plugin) error {
@@ -329,7 +332,7 @@ func (s *Server) Run() error {
 		if err != nil {
 			continue
 		}
-
+		// 单独起一个协程处理客户端连接
 		go s.onConn(clientConn)
 	}
 }
@@ -415,6 +418,7 @@ func (s *Server) onConn(conn *clientConn) {
 	}
 
 	connectedTime := time.Now()
+	// 单个连接的处理
 	conn.Run(ctx)
 
 	err = plugin.ForeachPlugin(plugin.Audit, func(p *plugin.Plugin) error {

@@ -77,6 +77,7 @@ func (ts *TiDBStatement) Execute(ctx context.Context, args []types.Datum) (rs Re
 	}
 	rs = &tidbResultSet{
 		recordSet:    tidbRecordset,
+		// 最重要的就是调用 tc.session.Execute，这个 session.Execute 的实现在 session.go 中，自此会进入 SQL 核心层
 		preparedStmt: ts.ctx.GetSessionVars().PreparedStmts[ts.id].(*core.CachedPrepareStmt),
 	}
 	return

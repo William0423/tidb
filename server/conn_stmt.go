@@ -184,6 +184,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 		}
 	}
 	ctx = context.WithValue(ctx, execdetails.StmtExecDetailKey, &execdetails.StmtExecDetails{})
+	// 调用具体的执行逻辑：
 	rs, err := stmt.Execute(ctx, args)
 	if err != nil {
 		return errors.Annotate(err, cc.preparedStmt2String(stmtID))
@@ -208,6 +209,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 		return cc.flush()
 	}
 	defer terror.Call(rs.Close)
+	// 经过一系列处理，拿到 SQL 语句的结果后会调用 writeResultset 方法把结果写回客户端：
 	err = cc.writeResultset(ctx, rs, true, 0, 0)
 	if err != nil {
 		return errors.Annotate(err, cc.preparedStmt2String(stmtID))

@@ -181,8 +181,10 @@ func main() {
 	setupBinlogClient()
 	setupMetrics()
 	createStoreAndDomain()
+	// 处理请求的入口
 	createServer()
 	signal.SetupSignalHandler(serverShutdown)
+	// 运行server
 	runServer()
 	cleanup()
 	syncLog()

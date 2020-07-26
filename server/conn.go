@@ -687,6 +687,7 @@ func (cc *clientConn) Run(ctx context.Context) {
 	// the status to special values, for example: kill or graceful shutdown.
 	// The client connection would detect the events when it fails to change status
 	// by CAS operation, it would then take some actions accordingly.
+	// 首先看 clientConn.Run()，这里会在一个循环中，不断的读取网络包：
 	for {
 		if !atomic.CompareAndSwapInt32(&cc.status, connStatusDispatching, connStatusReading) {
 			return
@@ -724,6 +725,7 @@ func (cc *clientConn) Run(ctx context.Context) {
 		}
 
 		startTime := time.Now()
+		// 然后调用 dispatch() 方法处理收到的请求：
 		if err = cc.dispatch(ctx, data); err != nil {
 			if terror.ErrorEqual(err, io.EOF) {
 				cc.addMetrics(data[0], startTime, nil)
@@ -863,6 +865,7 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 
 	t := time.Now()
 	cc.lastPacket = data
+	// 根据 Command 的类型，调用对应的处理函数
 	cmd := data[0]
 	data = data[1:]
 	if variable.EnablePProfSQLCPU.Load() {
@@ -917,6 +920,7 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 			data = data[:len(data)-1]
 			dataStr = string(hack.String(data))
 		}
+		// 对于 Command Query，从客户端发送来的主要是 SQL 文本，处理函数是 handleQuery():
 		return cc.handleQuery(ctx, dataStr)
 	case mysql.ComPing:
 		return cc.writeOK()
