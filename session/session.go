@@ -1121,6 +1121,8 @@ func (s *session) Parse(ctx context.Context, sql string) ([]ast.StmtNode, error)
 	return stmts, nil
 }
 
+// Session 中最重要的函数是 Execute，这里会调用下面所述的各种模块，完成语句执行。
+// 注意这里在执行的过程中，会考虑 Session 环境变量，比如是否 AutoCommit，时区是什么。
 func (s *session) ExecuteStmt(ctx context.Context, stmtNode ast.StmtNode) (sqlexec.RecordSet, error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("session.ExecuteStmt", opentracing.ChildOf(span.Context()))
@@ -1142,6 +1144,7 @@ func (s *session) ExecuteStmt(ctx context.Context, stmtNode ast.StmtNode) (sqlex
 	}
 
 	// Transform abstract syntax tree to a physical plan(stored in executor.ExecStmt).
+	// 拿到 AST 之后，就可以做各种验证、变化、优化，这一系列动作的入口在这里：
 	compiler := executor.Compiler{Ctx: s}
 	stmt, err := compiler.Compile(ctx, stmtNode)
 	if err != nil {

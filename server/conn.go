@@ -1293,6 +1293,8 @@ func (cc *clientConn) handleIndexAdvise(ctx context.Context, indexAdviseInfo *ex
 func (cc *clientConn) handleQuery(ctx context.Context, sql string) (err error) {
 	sc := cc.ctx.GetSessionVars().StmtCtx
 	prevWarns := sc.GetWarnings()
+	// Lexer & Yacc：这两个组件共同构成了 Parser 模块，调用 Parser，可以将文本解析成结构化数据，也就是抽象语法树 （AST）：
+	// 按：相对之前的版本，这段逻辑提前了？
 	stmts, err := cc.ctx.Parse(ctx, sql)
 	if err != nil {
 		metrics.ExecuteErrorCounter.WithLabelValues(metrics.ExecuteErrorToLabel(err)).Inc()
@@ -1322,6 +1324,7 @@ func (cc *clientConn) handleQuery(ctx context.Context, sql string) (err error) {
 			// Save the point plan in Session so we don't need to build the point plan again.
 			cc.ctx.SetValue(plannercore.PointPlanKey, plannercore.PointPlanVal{Plan: pointPlans[i]})
 		}
+		// 处理Stmt
 		err = cc.handleStmt(ctx, stmt, parserWarns, i == len(stmts)-1)
 		if err != nil {
 			break
@@ -1429,6 +1432,7 @@ func (cc *clientConn) prefetchPointPlanKeys(ctx context.Context, stmts []ast.Stm
 
 func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns []stmtctx.SQLWarn, lastStmt bool) error {
 	ctx = context.WithValue(ctx, execdetails.StmtExecDetailKey, &execdetails.StmtExecDetails{})
+	// 这个函数会调用具体的执行逻辑：
 	rs, err := cc.ctx.ExecuteStmt(ctx, stmt)
 	if rs != nil {
 		defer terror.Call(rs.Close)
@@ -1451,7 +1455,7 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 		if connStatus == connStatusShutdown || connStatus == connStatusWaitShutdown {
 			return executor.ErrQueryInterrupted
 		}
-
+		// 拿到 SQL 语句的结果后会调用 writeResultset 方法把结果写回客户端：
 		err = cc.writeResultset(ctx, rs, false, status, 0)
 		if err != nil {
 			return err
