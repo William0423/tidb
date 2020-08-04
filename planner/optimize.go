@@ -112,6 +112,7 @@ func Optimize(ctx context.Context, sctx sessionctx.Context, node ast.Node, is in
 		}
 	}()
 	sessVars.StmtCtx.StmtHints = stmtHints
+	// 真正的优化方法
 	bestPlan, names, _, err := optimize(ctx, sctx, node, is)
 	if err != nil {
 		return nil, nil, err
@@ -162,6 +163,7 @@ func Optimize(ctx context.Context, sctx sessionctx.Context, node ast.Node, is in
 		hint.BindHint(stmtNode, binding.Hint)
 		curStmtHints, curWarns := handleStmtHints(binding.Hint.GetFirstTableHints())
 		sctx.GetSessionVars().StmtCtx.StmtHints = curStmtHints
+		// 第二次调用optimize
 		plan, _, cost, err := optimize(ctx, sctx, node, is)
 		if err != nil {
 			binding.Status = bindinfo.Invalid
@@ -207,6 +209,8 @@ func optimize(ctx context.Context, sctx sessionctx.Context, node ast.Node, is in
 	// reset fields about rewrite
 	sctx.GetSessionVars().RewritePhaseInfo.Reset()
 	beginRewrite := time.Now()
+	// 接下来是将 AST 转成 Plan 结构，这个操作是在 planBuilder.buildInsert() 中完成。
+	// 经过这一步：ast.InsertStmt已经被转换成为plan.Insert结构
 	p, err := builder.Build(ctx, node)
 	if err != nil {
 		return nil, nil, 0, err
@@ -249,6 +253,7 @@ func optimize(ctx context.Context, sctx sessionctx.Context, node ast.Node, is in
 	}
 
 	beginOpt := time.Now()
+	// Select语句得到的Plan是一个LogicalPlan，所以这里可以进入doOptimize这个函数。
 	finalPlan, cost, err := plannercore.DoOptimize(ctx, sctx, builder.GetOptFlag(), logic)
 	sctx.GetSessionVars().DurationOptimization = time.Since(beginOpt)
 	return finalPlan, names, cost, err
