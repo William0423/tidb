@@ -58,10 +58,12 @@ const (
 
 var optRuleList = []logicalOptRule{
 	&gcSubstituter{},
+	// 列裁剪
 	&columnPruner{},
 	&buildKeySolver{},
 	&decorrelateSolver{},
 	&aggregationEliminator{},
+	// 投影消除
 	&projectionEliminator{},
 	&maxMinEliminator{},
 	&ppdSolver{},
@@ -187,6 +189,8 @@ func physicalOptimize(logic LogicalPlan, planCounter *PlanCounterTp) (PhysicalPl
 	}
 
 	logic.SCtx().GetSessionVars().StmtCtx.TaskMapBakTS = 0
+	// 上面两个方法的返回值都是一个叫 task 的结构，而不是物理计划，这里引入一个概念，叫 Task，TiDB 的优化器会将 PhysicalPlan 打包成为 Task。
+	// Task的定义在task.go 中，
 	t, _, err := logic.findBestTask(prop, planCounter)
 	if err != nil {
 		return nil, 0, err

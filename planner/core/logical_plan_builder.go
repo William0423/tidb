@@ -2451,6 +2451,8 @@ func (b *PlanBuilder) TableHints() *tableHintInfo {
 	return &(b.tableHintInfo[len(b.tableHintInfo)-1])
 }
 
+// 在 planBuilder.buildSelect() 方法中，我们可以看到 ast.SelectStmt 是如何转换成一个 plan 树，
+// 最终的结果是一个 LogicalPlan，每一个语法元素都被转换成一个逻辑查询计划单元，
 func (b *PlanBuilder) buildSelect(ctx context.Context, sel *ast.SelectStmt) (p LogicalPlan, err error) {
 	b.pushSelectOffset(sel.QueryBlockOffset)
 	b.pushTableHints(sel.TableHints, utilhint.TypeSelect, sel.QueryBlockOffset)
@@ -2520,6 +2522,7 @@ func (b *PlanBuilder) buildSelect(ctx context.Context, sel *ast.SelectStmt) (p L
 		return nil, err
 	}
 
+	// 例如 WHERE c > 10 会被处理为一个 plan.LogicalSelection 的结构：
 	if sel.Where != nil {
 		p, err = b.buildSelection(ctx, p, sel.Where, nil)
 		if err != nil {
