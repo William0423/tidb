@@ -72,6 +72,7 @@ type HashJoinExec struct {
 	probeChkResourceCh chan *probeChkResource
 	probeResultChs     []chan *chunk.Chunk
 	joinChkResourceCh  []chan *chunk.Chunk
+	// 每个 Join Worker 一个，Outer Fetcher 将获取到的 Outer Chunk 写入到这个 channel 中供相应的 Join Worker 使用；
 	joinResultCh       chan *hashjoinWorkerResult
 
 	memTracker  *memory.Tracker // track memory usage.
@@ -179,6 +180,7 @@ func (e *HashJoinExec) Open(ctx context.Context) error {
 
 // fetchProbeSideChunks get chunks from fetches chunks from the big table in a background goroutine
 // and sends the chunks to multiple channels which will be read by multiple join workers.
+// 对应博客中的 fetchOuterChunks()
 func (e *HashJoinExec) fetchProbeSideChunks(ctx context.Context) {
 	hasWaitedForBuild := false
 	for {
@@ -312,6 +314,7 @@ func (e *HashJoinExec) initializeForProbe() {
 }
 
 func (e *HashJoinExec) fetchAndProbeHashTable(ctx context.Context) {
+	// 这个方法内部，声明了几类channel之间的交互关系。
 	e.initializeForProbe()
 	e.joinWorkerWaitGroup.Add(1)
 	go util.WithRecovery(func() { e.fetchProbeSideChunks(ctx) }, e.handleProbeSideFetcherPanic)
@@ -323,6 +326,7 @@ func (e *HashJoinExec) fetchAndProbeHashTable(ctx context.Context) {
 
 	// Start e.concurrency join workers to probe hash table and join build side and
 	// probe side rows.
+	// 启动join workers
 	for i := uint(0); i < e.concurrency; i++ {
 		e.joinWorkerWaitGroup.Add(1)
 		workID := i
@@ -605,9 +609,13 @@ func (e *HashJoinExec) join2ChunkForOuterHashJoin(workerID uint, probeSideChk *c
 // hash join constructs the result following these steps:
 // step 1. fetch data from build side child and build a hash table;
 // step 2. fetch data from probe child in a background goroutine and probe the hash table in multiple join workers.
+// 名词理解：
+//		build side child应该是指inner表
+// 		probe child是指outer表
 func (e *HashJoinExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 	if !e.prepared {
 		e.buildFinished = make(chan error, 1)
+		// // 这个应该就是Main Thread了
 		go util.WithRecovery(func() { e.fetchAndBuildHashTable(ctx) }, e.handleFetchAndBuildHashTablePanic)
 		e.fetchAndProbeHashTable(ctx)
 		e.prepared = true
@@ -615,6 +623,8 @@ func (e *HashJoinExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 	if e.isOuterJoin {
 		atomic.StoreInt64(&e.requiredRows, int64(req.RequiredRows()))
 	}
+	// 在executor.go中有这句备注：
+	// NOTE: Executors must call "chk.Reset()" before appending their results to it.
 	req.Reset()
 
 	result, ok := <-e.joinResultCh
@@ -637,6 +647,7 @@ func (e *HashJoinExec) handleFetchAndBuildHashTablePanic(r interface{}) {
 	close(e.buildFinished)
 }
 
+// 构建Hash表
 func (e *HashJoinExec) fetchAndBuildHashTable(ctx context.Context) {
 	// buildSideResultCh transfers build side chunk from build side fetch to build hash table.
 	buildSideResultCh := make(chan *chunk.Chunk, 1)
@@ -672,6 +683,7 @@ func (e *HashJoinExec) fetchAndBuildHashTable(ctx context.Context) {
 }
 
 // buildHashTableForList builds hash table from `list`.
+// Main Thread 构造哈希表
 func (e *HashJoinExec) buildHashTableForList(buildSideResultCh <-chan *chunk.Chunk) error {
 	buildKeyColIdx := make([]int, len(e.buildKeys))
 	for i := range e.buildKeys {
