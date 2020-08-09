@@ -50,10 +50,12 @@ var _ = check.Suite(&testChunkSuite{})
 type testChunkSuite struct{}
 
 func (s *testChunkSuite) TestChunk(c *check.C) {
+	// 6列10行
 	numCols := 6
 	numRows := 10
 	chk := newChunk(8, 8, 0, 0, 40, 0)
 	strFmt := "%d.12345"
+	// 生成10行数据，每一行有6列
 	for i := 0; i < numRows; i++ {
 		chk.AppendNull(0)
 		chk.AppendInt64(1, int64(i))
@@ -65,7 +67,9 @@ func (s *testChunkSuite) TestChunk(c *check.C) {
 	}
 	c.Assert(chk.NumCols(), check.Equals, numCols)
 	c.Assert(chk.NumRows(), check.Equals, numRows)
+	// 遍历10行数据
 	for i := 0; i < numRows; i++ {
+		// 取第i行
 		row := chk.GetRow(i)
 		c.Assert(row.GetInt64(0), check.Equals, int64(0))
 		c.Assert(row.IsNull(0), check.IsTrue)
@@ -167,7 +171,9 @@ func (s *testChunkSuite) TestAppend(c *check.C) {
 	src := NewChunkWithCapacity(fieldTypes, 32)
 	dst := NewChunkWithCapacity(fieldTypes, 32)
 
+	// append定长变量
 	src.AppendFloat32(0, 12.8)
+	// append变长变量
 	src.AppendString(1, "abc")
 	src.AppendJSON(2, jsonObj)
 	src.AppendNull(0)
