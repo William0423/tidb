@@ -88,6 +88,7 @@ func (e *baseExecutor) releaseSysSession(ctx sessionctx.Context) {
 }
 
 // Next implements the Executor Next interface.
+// Next的实现，不同类有不同的实现。
 func (e *SimpleExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 	if e.done {
 		return nil
@@ -541,6 +542,7 @@ func (e *SimpleExec) executeUse(s *ast.UseStmt) error {
 	return sessionVars.SetSystemVar(variable.CollationDatabase, dbCollate)
 }
 
+// 事务开始
 func (e *SimpleExec) executeBegin(ctx context.Context, s *ast.BeginStmt) error {
 	// If BEGIN is the first statement in TxnCtx, we can reuse the existing transaction, without the
 	// need to call NewTxn, which commits the existing transaction and begins a new one.

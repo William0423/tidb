@@ -348,7 +348,7 @@ func (a *ExecStmt) Exec(ctx context.Context) (_ sqlexec.RecordSet, err error) {
 	if isPessimistic && a.isSelectForUpdate {
 		return a.handlePessimisticSelectForUpdate(ctx, e)
 	}
-
+	// 事务链
 	if handled, result, err := a.handleNoDelay(ctx, e, isPessimistic); handled {
 		return result, err
 	}

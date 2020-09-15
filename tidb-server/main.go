@@ -652,10 +652,14 @@ func setupLog() {
 
 func printInfo() {
 	// Make sure the TiDB info is always printed.
-	level := log.GetLevel()
+	//level := log.GetLevel()
+	//log.SetLevel(zap.InfoLevel)
+	//printer.PrintTiDBInfo()
+	//log.SetLevel(level)
+
 	log.SetLevel(zap.InfoLevel)
 	printer.PrintTiDBInfo()
-	log.SetLevel(level)
+	log.SetLevel(zap.DebugLevel)
 }
 
 func createServer() {

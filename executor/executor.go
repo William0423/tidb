@@ -245,6 +245,7 @@ func newBaseExecutor(ctx sessionctx.Context, schema *expression.Schema, id fmt.S
 type Executor interface {
 	base() *baseExecutor
 	Open(context.Context) error
+	//
 	Next(ctx context.Context, req *chunk.Chunk) error
 	Close() error
 	Schema() *expression.Schema
@@ -266,6 +267,7 @@ func Next(ctx context.Context, e Executor, req *chunk.Chunk) error {
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
+	// 事务琏，具体实现在各个
 	err := e.Next(ctx, req)
 
 	if err != nil {
