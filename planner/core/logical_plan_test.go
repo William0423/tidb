@@ -494,6 +494,8 @@ func (s *testPlanSuite) TestJoinReOrder(c *C) {
 
 		p, _, err := BuildLogicalPlan(ctx, s.ctx, stmt, s.is)
 		c.Assert(err, IsNil)
+		beforePlanString := ToString(p)
+		println(beforePlanString)
 		p, err = logicalOptimize(context.TODO(), flagPredicatePushDown|flagJoinReOrder, p.(LogicalPlan))
 		c.Assert(err, IsNil)
 		planString := ToString(p)

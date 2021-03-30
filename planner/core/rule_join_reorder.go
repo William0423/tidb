@@ -64,6 +64,7 @@ func (s *joinReOrderSolver) optimizeRecursive(ctx sessionctx.Context, p LogicalP
 	curJoinGroup, eqEdges, otherConds := extractJoinGroup(p)
 	if len(curJoinGroup) > 1 {
 		for i := range curJoinGroup {
+			// 这一步主要是把nil类型的child -> []
 			curJoinGroup[i], err = s.optimizeRecursive(ctx, curJoinGroup[i])
 			if err != nil {
 				return nil, err

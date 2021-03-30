@@ -668,7 +668,7 @@ type leftOuterJoiner struct {
 	baseJoiner
 }
 
-// tryToMatchInners implements joiner interface.
+// tryToMatchInners implements joiner interface. // 左右表进行joiner匹配
 func (j *leftOuterJoiner) tryToMatchInners(outer chunk.Row, inners chunk.Iterator, chk *chunk.Chunk) (matched bool, hasNull bool, err error) {
 	if inners.Len() == 0 {
 		return false, false, nil
@@ -684,7 +684,7 @@ func (j *leftOuterJoiner) tryToMatchInners(outer chunk.Row, inners chunk.Iterato
 	}
 
 	numToAppend := chk.RequiredRows() - chk.NumRows()
-	for ; inners.Current() != inners.End() && numToAppend > 0; numToAppend-- {
+	for ; inners.Current() != inners.End() && numToAppend > 0; numToAppend-- { // inners有多条，一条条遍历
 		j.makeJoinRowToChunk(chkForJoin, outer, inners.Current(), lUsed, rUsed)
 		inners.Next()
 	}

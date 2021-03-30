@@ -150,6 +150,7 @@ func (tk *TestKit) Exec(sql string, args ...interface{}) (sqlexec.RecordSet, err
 	if len(args) == 0 {
 		sc := tk.Se.GetSessionVars().StmtCtx
 		prevWarns := sc.GetWarnings()
+		// 翻译成stmt
 		stmts, err := tk.Se.Parse(ctx, sql)
 		if err != nil {
 			return nil, errors.Trace(err)
@@ -158,6 +159,7 @@ func (tk *TestKit) Exec(sql string, args ...interface{}) (sqlexec.RecordSet, err
 		parserWarns := warns[len(prevWarns):]
 		var rs0 sqlexec.RecordSet
 		for i, stmt := range stmts {
+			// 执行stmt
 			rs, err := tk.Se.ExecuteStmt(ctx, stmt)
 			if i == 0 {
 				rs0 = rs

@@ -98,6 +98,7 @@ type selectResult struct {
 func (r *selectResult) Fetch(ctx context.Context) {
 }
 
+// 从kv中获取数据
 func (r *selectResult) fetchResp(ctx context.Context) error {
 	for {
 		r.respChkIdx = 0
@@ -123,6 +124,7 @@ func (r *selectResult) fetchResp(ctx context.Context) error {
 			}
 			return nil
 		}
+		// 创建一个存储结果的对象protobuf对象
 		r.selectResp = new(tipb.SelectResponse)
 		err = r.selectResp.Unmarshal(resultSubset.GetData())
 		if err != nil {
@@ -200,11 +202,13 @@ func (r *selectResult) NextRaw(ctx context.Context) (data []byte, err error) {
 func (r *selectResult) readFromDefault(ctx context.Context, chk *chunk.Chunk) error {
 	for !chk.IsFull() {
 		if r.respChkIdx == len(r.selectResp.Chunks) {
+			// 从ctx中获取tikv的结果，并把结果存储在selectResult中，
 			err := r.fetchResp(ctx)
 			if err != nil || r.selectResp == nil {
 				return err
 			}
 		}
+		// 将上面得到的结果放入chk中
 		err := r.readRowsData(chk)
 		if err != nil {
 			return err

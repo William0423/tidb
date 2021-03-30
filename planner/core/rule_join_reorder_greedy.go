@@ -26,6 +26,8 @@ type joinReorderGreedySolver struct {
 	eqEdges []*expression.ScalarFunction
 }
 
+// 这个函数实现reorder
+
 // solve reorders the join nodes in the group based on a greedy algorithm.
 //
 // For each node having a join equal condition with the current join tree in

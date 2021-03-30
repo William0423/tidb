@@ -182,6 +182,7 @@ func enableParallelApply(sctx sessionctx.Context, plan PhysicalPlan) PhysicalPla
 	return plan
 }
 
+//
 func logicalOptimize(ctx context.Context, flag uint64, logic LogicalPlan) (LogicalPlan, error) {
 	var err error
 	for i, rule := range optRuleList {

@@ -72,11 +72,14 @@ type HashJoinExec struct {
 	// We build individual joiner for each join worker when use chunk-based
 	// execution, to avoid the concurrency of joiner.chk and joiner.selected.
 	joiners []joiner
-
+	// 从join中
 	probeChkResourceCh chan *probeChkResource
-	probeResultChs     []chan *chunk.Chunk
-	joinChkResourceCh  []chan *chunk.Chunk
-	joinResultCh       chan *hashjoinWorkerResult
+	// 每个 Join Worker 一个，Outer Fetcher 将获取到的 Outer Chunk 写入到这个 channel 中供相应的 Join Worker 使用
+	probeResultChs []chan *chunk.Chunk
+	// 每个 Join Worker 一个，用来存 Join 的结果；
+	joinChkResourceCh []chan *chunk.Chunk
+	// Join Worker 将 Join 的结果 Chunk 以及它的 joinChkResourceCh 地址写入到这个 channel 中，告诉 Main Thread 两件事
+	joinResultCh chan *hashjoinWorkerResult
 
 	memTracker  *memory.Tracker // track memory usage.
 	diskTracker *disk.Tracker   // track disk usage.
@@ -109,7 +112,7 @@ type probeChkResource struct {
 type hashjoinWorkerResult struct {
 	chk *chunk.Chunk
 	err error
-	src chan<- *chunk.Chunk
+	src chan<- *chunk.Chunk // 只写的channel类型
 }
 
 // Close implements the Executor Close interface.
@@ -193,11 +196,14 @@ func (e *HashJoinExec) fetchProbeSideChunks(ctx context.Context) {
 			return
 		}
 
+		// probeSideResource就是文章中的outerResource中；
 		var probeSideResource *probeChkResource
 		var ok bool
 		select {
 		case <-e.closeCh:
 			return
+		// Outer Fetcher计算逻辑：
+		// 1、 从 probeChkResourceCh 中获取一个 probeChkResource，存储在变量 probeSideResource 中；
 		case probeSideResource, ok = <-e.probeChkResourceCh:
 			if !ok {
 				return
@@ -208,6 +214,10 @@ func (e *HashJoinExec) fetchProbeSideChunks(ctx context.Context) {
 			required := int(atomic.LoadInt64(&e.requiredRows))
 			probeSideResult.SetRequiredRows(required, e.maxChunkSize)
 		}
+
+		// 在Next方法中，将tikv中数据存放到probeSideResult这个指针指向的*chunk.Chunk对象中
+		// e.probeSideExec是一个Executor
+		// 2、从 Child 拉取数据，将数据写入到 probeChkResource 的 chk 字段中；probeChkResource的chk就是probeSideResult
 		err := Next(ctx, e.probeSideExec, probeSideResult)
 		if err != nil {
 			e.joinResultCh <- &hashjoinWorkerResult{
@@ -235,7 +245,7 @@ func (e *HashJoinExec) fetchProbeSideChunks(ctx context.Context) {
 		if probeSideResult.NumRows() == 0 {
 			return
 		}
-
+		// 3、将这个 chk 发给需要 Outer 表的数据的 Join Worker 的 probeResultChs[i] 中去，这个信息记录在了 probeSideResource 的 dest 字段中
 		probeSideResource.dest <- probeSideResult
 	}
 }
@@ -257,6 +267,7 @@ func (e *HashJoinExec) wait4BuildSide() (emptyBuild bool, err error) {
 
 // fetchBuildSideRows fetches all rows from build side executor, and append them
 // to e.buildSideResult.
+// 第二个参数：chkCh是buildSideResultCh
 func (e *HashJoinExec) fetchBuildSideRows(ctx context.Context, chkCh chan<- *chunk.Chunk, doneCh <-chan struct{}) {
 	defer close(chkCh)
 	var err error
@@ -289,6 +300,7 @@ func (e *HashJoinExec) initializeForProbe() {
 	// probeSideExec, it'll be written by probe side worker goroutine, and read by join
 	// workers.
 	e.probeResultChs = make([]chan *chunk.Chunk, e.concurrency)
+	// 并发起多个 probeResultCh
 	for i := uint(0); i < e.concurrency; i++ {
 		e.probeResultChs[i] = make(chan *chunk.Chunk, 1)
 	}
@@ -316,11 +328,17 @@ func (e *HashJoinExec) initializeForProbe() {
 	e.joinResultCh = make(chan *hashjoinWorkerResult, e.concurrency+1)
 }
 
+// inner -> build;  outer -> probe
+// 启动 Outer Fetcher 和 Join Worker 开始后台工作，生成 Join 结果，各个 goroutine 的启动过程由 fetchAndProbeHashTable 这个函数完成
+// Outer Fetcher，一个，负责读取Outer表的数据并分发给各个 Join Worker；
+// Join Worker，多个，负责查哈希表、Join匹配的 Inner和Outer表的数据，并把结果传递给 Main Thread。
 func (e *HashJoinExec) fetchAndProbeHashTable(ctx context.Context) {
 	e.initializeForProbe()
 	e.joinWorkerWaitGroup.Add(1)
 	go util.WithRecovery(func() {
 		defer trace.StartRegion(ctx, "HashJoinProbeSideFetcher").End()
+		// Outer Fetcher计算逻辑：
+		// 不断的读大表的数据，并将获得的 Outer 表的数据分发给各个 Join Worker。
 		e.fetchProbeSideChunks(ctx)
 	}, e.handleProbeSideFetcherPanic)
 
@@ -329,6 +347,7 @@ func (e *HashJoinExec) fetchAndProbeHashTable(ctx context.Context) {
 		probeKeyColIdx[i] = e.probeKeys[i].Index
 	}
 
+	// 启动多个Join Worker
 	// Start e.concurrency join workers to probe hash table and join build side and
 	// probe side rows.
 	for i := uint(0); i < e.concurrency; i++ {
@@ -336,6 +355,7 @@ func (e *HashJoinExec) fetchAndProbeHashTable(ctx context.Context) {
 		workID := i
 		go util.WithRecovery(func() {
 			defer trace.StartRegion(ctx, "HashJoinWorker").End()
+			// 每个Join Worker的计算逻辑
 			e.runJoinWorker(workID, probeKeyColIdx)
 		}, e.handleJoinWorkerPanic)
 	}
@@ -409,6 +429,7 @@ func (e *HashJoinExec) waitJoinWorkersAndCloseResultChan() {
 	close(e.joinResultCh)
 }
 
+// join的第二步：在这里进行hash表匹配
 func (e *HashJoinExec) runJoinWorker(workerID uint, probeKeyColIdx []int) {
 	probeTime := int64(0)
 	if e.stats != nil {
@@ -447,7 +468,7 @@ func (e *HashJoinExec) runJoinWorker(workerID uint, probeKeyColIdx []int) {
 			return
 		case probeSideResult, ok = <-e.probeResultChs[workerID]:
 		}
-		if !ok {
+		if !ok { // 什么时候退出？
 			break
 		}
 		start := time.Now()
@@ -468,7 +489,7 @@ func (e *HashJoinExec) runJoinWorker(workerID uint, probeKeyColIdx []int) {
 	if joinResult == nil {
 		return
 	} else if joinResult.err != nil || (joinResult.chk != nil && joinResult.chk.NumRows() > 0) {
-		e.joinResultCh <- joinResult
+		e.joinResultCh <- joinResult // 4、将写满了的 Join Chunk 发送给 Main Thread
 	} else if joinResult.chk != nil && joinResult.chk.NumRows() == 0 {
 		e.joinChkResourceCh[workerID] <- joinResult.chk
 	}
@@ -489,6 +510,7 @@ func (e *HashJoinExec) joinMatchedProbeSideRow2ChunkForOuterHashJoin(workerID ui
 	var outerMatchStatus []outerRowStatusFlag
 	rowIdx := 0
 	for iter.Begin(); iter.Current() != iter.End(); {
+		// 1、查哈希表，将匹配的 Outer Row 和 Inner Rows 写到 Join Chunk 中；
 		outerMatchStatus, err = e.joiners[workerID].tryToMatchOuters(iter, probeSideRow, joinResult.chk, outerMatchStatus)
 		if err != nil {
 			joinResult.err = err
@@ -501,6 +523,7 @@ func (e *HashJoinExec) joinMatchedProbeSideRow2ChunkForOuterHashJoin(workerID ui
 		}
 		rowIdx += len(outerMatchStatus)
 		if joinResult.chk.IsFull() {
+			// joinChkResourceCh类型的joinResult写到joinResultCh
 			e.joinResultCh <- joinResult
 			ok, joinResult := e.getNewJoinResult(workerID)
 			if !ok {
@@ -512,19 +535,19 @@ func (e *HashJoinExec) joinMatchedProbeSideRow2ChunkForOuterHashJoin(workerID ui
 }
 func (e *HashJoinExec) joinMatchedProbeSideRow2Chunk(workerID uint, probeKey uint64, probeSideRow chunk.Row, hCtx *hashContext,
 	joinResult *hashjoinWorkerResult) (bool, *hashjoinWorkerResult) {
-	buildSideRows, _, err := e.rowContainer.GetMatchedRowsAndPtrs(probeKey, probeSideRow, hCtx)
+	buildSideRows, _, err := e.rowContainer.GetMatchedRowsAndPtrs(probeKey, probeSideRow, hCtx) // 根据key获取inner表的rows，一个key对应多个rows
 	if err != nil {
 		joinResult.err = err
 		return false, joinResult
 	}
-	if len(buildSideRows) == 0 {
+	if len(buildSideRows) == 0 { // 如果inner表没有匹配的rows, 就走这条线
 		e.joiners[workerID].onMissMatch(false, probeSideRow, joinResult.chk)
 		return true, joinResult
 	}
 	iter := chunk.NewIterator4Slice(buildSideRows)
 	hasMatch, hasNull := false, false
 	for iter.Begin(); iter.Current() != iter.End(); {
-		matched, isNull, err := e.joiners[workerID].tryToMatchInners(probeSideRow, iter, joinResult.chk)
+		matched, isNull, err := e.joiners[workerID].tryToMatchInners(probeSideRow, iter, joinResult.chk) // 在此处进行match统计
 		if err != nil {
 			joinResult.err = err
 			return false, joinResult
@@ -548,6 +571,7 @@ func (e *HashJoinExec) joinMatchedProbeSideRow2Chunk(workerID uint, probeKey uin
 
 func (e *HashJoinExec) getNewJoinResult(workerID uint) (bool, *hashjoinWorkerResult) {
 	joinResult := &hashjoinWorkerResult{
+		// 从 joinResultCh 中获取一个 Join Chunk
 		src: e.joinChkResourceCh[workerID],
 	}
 	ok := true
@@ -577,13 +601,13 @@ func (e *HashJoinExec) join2Chunk(workerID uint, probeSideChk *chunk.Chunk, hCtx
 			return false, joinResult
 		}
 	}
-
+	//
 	for i := range selected {
 		if !selected[i] || hCtx.hasNull[i] { // process unmatched probe side rows
 			e.joiners[workerID].onMissMatch(false, probeSideChk.GetRow(i), joinResult.chk)
 		} else { // process matched probe side rows
-			probeKey, probeRow := hCtx.hashVals[i].Sum64(), probeSideChk.GetRow(i)
-			ok, joinResult = e.joinMatchedProbeSideRow2Chunk(workerID, probeKey, probeRow, hCtx, joinResult)
+			probeKey, probeRow := hCtx.hashVals[i].Sum64(), probeSideChk.GetRow(i)                           // 获取probe表的key\value
+			ok, joinResult = e.joinMatchedProbeSideRow2Chunk(workerID, probeKey, probeRow, hCtx, joinResult) // 进行匹配；
 			if !ok {
 				return false, joinResult
 			}
@@ -630,13 +654,17 @@ func (e *HashJoinExec) join2ChunkForOuterHashJoin(workerID uint, probeSideChk *c
 // hash join constructs the result following these steps:
 // step 1. fetch data from build side child and build a hash table;
 // step 2. fetch data from probe child in a background goroutine and probe the hash table in multiple join workers.
+// 文章中的Main Thread线程：
 func (e *HashJoinExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 	if !e.prepared {
 		e.buildFinished = make(chan error, 1)
 		go util.WithRecovery(func() {
 			defer trace.StartRegion(ctx, "HashJoinHashTableBuilder").End()
+			// 构造哈希表的过程在这个函数的buildHashTableForList 完成。
 			e.fetchAndBuildHashTable(ctx)
+
 		}, e.handleFetchAndBuildHashTablePanic)
+		// 两表进行join， 内部实现了Outer Fetcher和Join Worker的计算逻辑：
 		e.fetchAndProbeHashTable(ctx)
 		e.prepared = true
 	}
@@ -645,6 +673,8 @@ func (e *HashJoinExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 	}
 	req.Reset()
 
+	// Main Thread函数计算逻辑
+	// 1、从 joinResultCh 中获取一个 Join Chunk
 	result, ok := <-e.joinResultCh
 	if !ok {
 		return nil
@@ -653,7 +683,9 @@ func (e *HashJoinExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 		e.finished.Store(true)
 		return result.err
 	}
+	// 2、将调用方传下来的 chk 和 Join Chunk 中的数据交换；
 	req.SwapColumns(result.chk)
+	// 3、把Join Chunk还给对应的Join Worker。
 	result.src <- result.chk
 	return nil
 }
@@ -679,6 +711,7 @@ func (e *HashJoinExec) fetchAndBuildHashTable(ctx context.Context) {
 	go util.WithRecovery(
 		func() {
 			defer trace.StartRegion(ctx, "HashJoinBuildSideFetcher").End()
+			// 从inner表中获取数据到buildSideResultCh
 			e.fetchBuildSideRows(ctx, buildSideResultCh, doneCh)
 		},
 		func(r interface{}) {
@@ -689,6 +722,7 @@ func (e *HashJoinExec) fetchAndBuildHashTable(ctx context.Context) {
 		},
 	)
 
+	// 从buildSideResultCh中拿到数据构建哈希表，
 	// TODO: Parallel build hash table. Currently not support because `unsafeHashTable` is not thread-safe.
 	err := e.buildHashTableForList(buildSideResultCh)
 	if err != nil {

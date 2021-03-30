@@ -1108,7 +1108,7 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 
 	e := &HashJoinExec{
 		baseExecutor:    newBaseExecutor(b.ctx, v.Schema(), v.ID(), leftExec, rightExec),
-		concurrency:     v.Concurrency,
+		concurrency:     1,
 		joinType:        v.JoinType,
 		isOuterJoin:     v.JoinType.IsOuterJoin(),
 		useOuterToBuild: v.UseOuterToBuild,

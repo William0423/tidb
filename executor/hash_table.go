@@ -113,7 +113,7 @@ func newHashRowContainer(sCtx sessionctx.Context, estCount int, hCtx *hashContex
 // in multiple goroutines while each goroutine should keep its own
 // h and buf.
 func (c *hashRowContainer) GetMatchedRowsAndPtrs(probeKey uint64, probeRow chunk.Row, hCtx *hashContext) (matched []chunk.Row, matchedPtrs []chunk.RowPtr, err error) {
-	innerPtrs := c.hashTable.Get(probeKey)
+	innerPtrs := c.hashTable.Get(probeKey) // 根据probeKey获取由inner table构建的哈希表
 	if len(innerPtrs) == 0 {
 		return
 	}
@@ -121,7 +121,7 @@ func (c *hashRowContainer) GetMatchedRowsAndPtrs(probeKey uint64, probeRow chunk
 	var matchedRow chunk.Row
 	matchedPtrs = make([]chunk.RowPtr, 0, len(innerPtrs))
 	for _, ptr := range innerPtrs {
-		matchedRow, err = c.rowContainer.GetRow(ptr)
+		matchedRow, err = c.rowContainer.GetRow(ptr) // 获取inner表的row
 		if err != nil {
 			return
 		}

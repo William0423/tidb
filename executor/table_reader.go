@@ -184,6 +184,7 @@ func (e *TableReaderExecutor) Next(ctx context.Context, req *chunk.Chunk) error 
 		}
 		return tableName
 	}), e.ranges)
+	// 不断的获取Chunk, req是一个指针对象，
 	if err := e.resultHandler.nextChunk(ctx, req); err != nil {
 		e.feedback.Invalidate()
 		return err
@@ -308,6 +309,8 @@ func (tr *tableResultHandler) nextChunk(ctx context.Context, chk *chunk.Chunk) e
 		}
 		tr.optionalFinished = true
 	}
+	// Next reads the data into chunk
+	// data是指从kv获取的原始protobuf数据
 	return tr.result.Next(ctx, chk)
 }
 
